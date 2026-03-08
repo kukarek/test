@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai_product_search_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ai_product_search
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai_product_search_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+    command: redis-server --appendonly yes
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_product_search_app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:password@postgres:5432/ai_product_search
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: your-super-secret-key-change-this-in-production
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRATION_HOURS: 24
+      JWT_REFRESH_EXPIRATION_DAYS: 7
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-your-api-key}
+      OPENAI_MODEL: gpt-4-turbo-preview
+      APP_NAME: AI Product Search Platform
+      APP_ENV: production
+      DEBUG: "False"
+      LOG_LEVEL: INFO
+      CORS_ORIGINS: http://localhost:3000,http://localhost:8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app_network
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  app_network:
+    driver: bridge
